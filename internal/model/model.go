@@ -1,12 +1,15 @@
 package model
 
-type statusValues string
+import "time"
+
+type StatusValues string
 
 const (
-	Pending   statusValues = "Pending"
-	Running   statusValues = "Running"
-	Completed statusValues = "Completed"
-	Failed    statusValues = "Failed"
+	StatusPending   StatusValues = "pending"
+	StatusRunning   StatusValues = "running"
+	StatusCompleted StatusValues = "completed"
+	StatusFailed    StatusValues = "failed"
+	StatusDead      StatusValues = "dead"
 )
 
 type Queue struct {
@@ -19,13 +22,13 @@ type Job struct {
 	Id               string
 	QueueId          int
 	Name             string
-	Status           statusValues
+	Status           StatusValues
 	Type             string
 	Payload          string
-	MaxTimeToExecute string
+	MaxTimeToExecute time.Duration
 	MaxAttempts      int
-	CreatedAt        string
-	ScheduledAt      string
+	CreatedAt        time.Time
+	ScheduledAt      time.Time
 }
 
 type Execution struct {
@@ -33,8 +36,8 @@ type Execution struct {
 	JobId       string
 	WorkerId    string
 	Attempt     int
-	StartedAt   string
-	CompletedAt string
-	Status      statusValues
+	StartedAt   time.Time
+	CompletedAt time.Time
+	Status      StatusValues
 	ExError     string
 }

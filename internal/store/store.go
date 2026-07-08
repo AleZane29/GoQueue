@@ -53,16 +53,26 @@ func (s *Store) FetchNextJob(ctx context.Context, queueId int) (*model.Job, erro
 	return job, nil
 }
 
-func (s *Store) InsertJob(ctx context.Context, job *model.Job) (int, error) {
-	var jobId int
+func (s *Store) InsertJob(ctx context.Context, job *model.Job) (string, error) {
+	var jobId string
 	query := `
         INSERT INTO jobs (queue_id, name, status, type, payload, max_time_to_execute, max_attempts, created_at, scheduled_at)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         RETURNING id`
 
-	err := s.db.QueryRow(ctx, query, job.QueueId, job.Name, job.Status, job.Type, job.Payload, job.MaxTimeToExecute, job.MaxAttempts, job.CreatedAt, job.ScheduledAt).Scan(&jobId)
+	err := s.db.QueryRow(ctx, query,
+		job.QueueId,
+		job.Name,
+		job.Status,
+		job.Type,
+		job.Payload,
+		job.MaxTimeToExecute,
+		job.MaxAttempts,
+		job.CreatedAt,
+		job.ScheduledAt,
+	).Scan(&jobId)
 	if err != nil {
-		return 0, fmt.Errorf("InsertJob: %w", err)
+		return "", fmt.Errorf("InsertJob: %w", err)
 	}
 	return jobId, nil
 }
