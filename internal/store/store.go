@@ -1,35 +1,38 @@
 package store
 
 import (
-	"database/sql"
+	"context"
+	"errors"
 	"fmt"
-	"log"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/AleZane29/GoQueue/internal/model"
 )
 
-func dbConnect() (*sql.DB, error) {
-	connStr := "postgres://postgres:@localhost:5432/GoQueue?sslmode=disable"
-	db, err := sql.Open("pgx", connStr)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer db.Close()
-	return db, nil
+type Store struct {
+	db *pgxpool.Pool
 }
 
-func getNextJob(queueId int) (model.Job, error) {
-	db, dbErr := dbConnect()
-	if dbErr == nil {
-		return model.Job{}, dbErr
-	}
-	job := model.Job{}
-	query := `SELECT id, queue_id, name, status, type, payload, max_time_to_execute, max_attempts, created_at, scheduled_at 
-          FROM public.jobs 
-          WHERE status = 'Pending' AND queue_id = $1 AND scheduled_at <= NOW() 
-          ORDER BY scheduled_at ASC LIMIT 1`
+func NewStore(db *pgxpool.Pool) *Store {
+	return &Store{db: db}
+}
 
-	if err := db.QueryRow(query, queueId).Scan(
+func (s *Store) FetchNextJob(ctx context.Context, queueId int) (*model.Job, error) {
+	job := &model.Job{}
+	query := `
+        SELECT id, queue_id, name, status, type, payload,
+        max_time_to_execute, max_attempts, created_at, scheduled_at
+        FROM jobs
+        WHERE status = 'pending'
+          AND queue_id = $1
+          AND scheduled_at <= NOW()
+        ORDER BY scheduled_at ASC
+        LIMIT 1
+        FOR UPDATE SKIP LOCKED`
+
+	err := s.db.QueryRow(ctx, query, queueId).Scan(
 		&job.Id,
 		&job.QueueId,
 		&job.Name,
@@ -40,13 +43,28 @@ func getNextJob(queueId int) (model.Job, error) {
 		&job.MaxAttempts,
 		&job.CreatedAt,
 		&job.ScheduledAt,
-	); err != nil {
-		if err == sql.ErrNoRows {
-			return model.Job{}, fmt.Errorf("No pending job found for queue %d", queueId)
-		}
-		return model.Job{}, fmt.Errorf("Error fetching next job for queue %d: %v", queueId, err)
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("FetchNextJob queue %d: %w", queueId, err)
 	}
 	return job, nil
+}
+
+func (s *Store) InsertJob(ctx context.Context, job *model.Job) (int, error) {
+	var jobId int
+	query := `
+        INSERT INTO jobs (queue_id, name, status, type, payload, max_time_to_execute, max_attempts, created_at, scheduled_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        RETURNING id`
+
+	err := s.db.QueryRow(ctx, query, job.QueueId, job.Name, job.Status, job.Type, job.Payload, job.MaxTimeToExecute, job.MaxAttempts, job.CreatedAt, job.ScheduledAt).Scan(&jobId)
+	if err != nil {
+		return 0, fmt.Errorf("InsertJob: %w", err)
+	}
+	return jobId, nil
 }
 
 //Multi row
