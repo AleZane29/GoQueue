@@ -19,6 +19,7 @@ func NewStore(db *pgxpool.Pool) *Store {
 	return &Store{db: db}
 }
 
+// To use when you want to fetch the next job from a specific queue and mark it as running. It uses a transaction to ensure that the job is locked for processing and updates its status atomically. If no pending jobs are available, it returns nil without an error.
 func (s *Store) FetchNextJob(ctx context.Context, queueId int) (*model.Job, error) {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
@@ -83,11 +84,12 @@ func (s *Store) UpdateJobStatus(ctx context.Context, jobId string, status model.
 	return jobId, nil
 }
 
+// Creates a new job in the database and returns its ID. It takes a Job struct as input, the value created_at is set to the current timestamp from the DB, which contains all the necessary fields for the job. The function uses a SQL INSERT statement with a RETURNING clause to get the generated job ID after insertion. If the insertion fails, it returns an error.
 func (s *Store) InsertJob(ctx context.Context, job *model.Job) (string, error) {
 	var jobId string
 	query := `
-        INSERT INTO jobs (queue_id, name, status, type, payload, max_time_to_execute, max_attempts, created_at, scheduled_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        INSERT INTO jobs (queue_id, name, status, type, payload, max_time_to_execute, max_attempts, scheduled_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         RETURNING id`
 
 	err := s.db.QueryRow(ctx, query,
@@ -98,7 +100,6 @@ func (s *Store) InsertJob(ctx context.Context, job *model.Job) (string, error) {
 		job.Payload,
 		job.MaxTimeToExecute,
 		job.MaxAttempts,
-		job.CreatedAt,
 		job.ScheduledAt,
 	).Scan(&jobId)
 	if err != nil {
@@ -107,28 +108,80 @@ func (s *Store) InsertJob(ctx context.Context, job *model.Job) (string, error) {
 	return jobId, nil
 }
 
-//Multi row
-// func albumsByArtist(artist string) ([]Album, error) {
-//     rows, err := db.Query("SELECT * FROM album WHERE artist = ?", artist)
-//     if err != nil {
-//         return nil, err
-//     }
-//     defer rows.Close()
+// Inserts a new execution record for a job. It takes the job ID, worker ID, and attempt number as input, and sets the status to 'running' with the current timestamp. The function returns the generated execution ID after insertion. If the insertion fails, it returns an error.
+func (s *Store) InsertExecution(ctx context.Context, jobId string, workerId string, attempt int) (string, error) {
+	var executionId string
+	query := `
+        INSERT INTO executions (job_id, worker_id, attempt, status, started_at)
+        VALUES ($1, $2, $3, 'running', NOW())
+        RETURNING id`
 
-//     // An album slice to hold data from returned rows.
-//     var albums []Album
+	err := s.db.QueryRow(ctx, query, jobId, workerId, attempt).Scan(&executionId)
+	if err != nil {
+		return "", fmt.Errorf("InsertExecution: %w", err)
+	}
+	return executionId, nil
+}
 
-//     // Loop through rows, using Scan to assign column data to struct fields.
-//     for rows.Next() {
-//         var alb Album
-//         if err := rows.Scan(&alb.ID, &alb.Title, &alb.Artist,
-//             &alb.Price, &alb.Quantity); err != nil {
-//             return albums, err
-//         }
-//         albums = append(albums, alb)
-//     }
-//     if err = rows.Err(); err != nil {
-//         return albums, err
-//     }
-//     return albums, nil
-// }
+func (s *Store) TerminateExecution(ctx context.Context, executionId string, status model.StatusValues, execError string) error {
+	// execError = "" → errValue = nil
+	var errValue *string
+	if execError != "" {
+		errValue = &execError
+	}
+
+	query := `
+        UPDATE executions 
+        SET status = $1, completed_at = NOW(), error = $2
+        WHERE id = $3`
+
+	_, err := s.db.Exec(ctx, query, status, errValue, executionId)
+	if err != nil {
+		return fmt.Errorf("UpdateExecution: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) FetchOrphanedJobs(ctx context.Context) ([]*model.Job, error) {
+	query := `
+        SELECT j.id, j.queue_id, j.name, j.status, j.type, j.payload,
+               j.max_time_to_execute, j.max_attempts, j.created_at, j.scheduled_at
+        FROM jobs j
+        JOIN executions e ON e.job_id = j.id
+        WHERE j.status = 'running'
+          AND e.status = 'running'
+          AND e.started_at < NOW() - j.max_time_to_execute`
+
+	rows, err := s.db.Query(ctx, query)
+	if err != nil {
+		return []*model.Job{}, fmt.Errorf("FetchOrphanedJobs: %w", err)
+	}
+	defer rows.Close()
+
+	var jobs []*model.Job
+	for rows.Next() {
+		job := &model.Job{}
+		err := rows.Scan(
+			&job.Id,
+			&job.QueueId,
+			&job.Name,
+			&job.Status,
+			&job.Type,
+			&job.Payload,
+			&job.MaxTimeToExecute,
+			&job.MaxAttempts,
+			&job.CreatedAt,
+			&job.ScheduledAt,
+		)
+		if err != nil {
+			return jobs, fmt.Errorf("FetchOrphanedJobs scan: %w", err)
+		}
+		jobs = append(jobs, job)
+	}
+
+	if err = rows.Err(); err != nil {
+		return jobs, fmt.Errorf("FetchOrphanedJobs rows error: %w", err)
+	}
+
+	return jobs, nil
+}

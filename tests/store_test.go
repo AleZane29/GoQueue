@@ -79,7 +79,19 @@ func applyMigrations(ctx context.Context, pool *pgxpool.Pool) error {
             max_attempts        INT         NOT NULL DEFAULT 3,
             created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
             scheduled_at        TIMESTAMPTZ NOT NULL DEFAULT now()
-        );`
+        );
+
+				CREATE TABLE IF NOT EXISTS executions (
+					id           UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+					job_id       UUID        NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+					worker_id    TEXT        NOT NULL,
+					attempt      INT         NOT NULL,
+					started_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+					completed_at TIMESTAMPTZ,
+					status       TEXT        NOT NULL,  
+					error        TEXT  
+				);                
+		`
 
 	_, err := pool.Exec(ctx, schema)
 	return err
@@ -236,4 +248,35 @@ func TestFetchNextJob_NoConcurrentDuplicates(t *testing.T) {
 	} else {
 		assert.Nil(t, second)
 	}
+}
+
+// SCRIVERE TEST PER: InsertExecution, UpdateExecution, FetchOrphanedJobs
+func TestFetchOrphanedJobs_RetriveOnlyOrphaned(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	var err error
+
+	noOrphan := baseJob(1)
+	noOrphan.Name = "no_orphan_job"
+	noOrphan.MaxTimeToExecute = 5 * time.Minute
+	noOrphan.Id, err = s.InsertJob(ctx, noOrphan)
+	require.NoError(t, err)
+	_, err = s.FetchNextJob(ctx, 1)
+	require.NoError(t, err)
+	s.InsertExecution(ctx, noOrphan.Id, "worker1", 1)
+
+	orphan := baseJob(1)
+	orphan.Name = "orphan_job"
+	orphan.MaxTimeToExecute = -1 * time.Minute
+	orphan.Id, err = s.InsertJob(ctx, orphan)
+	require.NoError(t, err)
+
+	_, err = s.FetchNextJob(ctx, 1)
+	require.NoError(t, err)
+	s.InsertExecution(ctx, orphan.Id, "worker1", 1)
+
+	jobs, err := s.FetchOrphanedJobs(ctx)
+	require.NoError(t, err)
+	require.Len(t, jobs, 1)
+	assert.Equal(t, "orphan_job", jobs[0].Name)
 }
