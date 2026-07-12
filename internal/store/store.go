@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -19,7 +20,7 @@ func NewStore(db *pgxpool.Pool) *Store {
 	return &Store{db: db}
 }
 
-// To use when you want to fetch the next job from a specific queue and mark it as running. It uses a transaction to ensure that the job is locked for processing and updates its status atomically. If no pending jobs are available, it returns nil without an error.
+// To use when you want to fetch the next job from a specific queue and mark it as running. It uses a transaction to ensure that the job is locked for processing and updates its status atomically and attempts. If no pending jobs are available, it returns nil without an error.
 func (s *Store) FetchNextJob(ctx context.Context, queueId int) (*model.Job, error) {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
@@ -30,7 +31,7 @@ func (s *Store) FetchNextJob(ctx context.Context, queueId int) (*model.Job, erro
 	job := &model.Job{}
 	query := `
         SELECT id, queue_id, name, status, type, payload,
-               max_time_to_execute, max_attempts, created_at, scheduled_at
+               max_time_to_execute, attempts, max_attempts, created_at, scheduled_at
         FROM jobs
         WHERE status = 'pending'
           AND queue_id = $1
@@ -47,6 +48,7 @@ func (s *Store) FetchNextJob(ctx context.Context, queueId int) (*model.Job, erro
 		&job.Type,
 		&job.Payload,
 		&job.MaxTimeToExecute,
+		&job.Attempts,
 		&job.MaxAttempts,
 		&job.CreatedAt,
 		&job.ScheduledAt,
@@ -59,7 +61,7 @@ func (s *Store) FetchNextJob(ctx context.Context, queueId int) (*model.Job, erro
 	}
 
 	// UPDATE status to 'running'
-	_, err = tx.Exec(ctx, `UPDATE jobs SET status = $1 WHERE id = $2`, model.StatusRunning, job.Id)
+	_, err = tx.Exec(ctx, `UPDATE jobs SET status = $1, attempts = $2 WHERE id = $3`, model.StatusRunning, job.Attempts+1, job.Id)
 	if err != nil {
 		return nil, fmt.Errorf("FetchNextJob update status: %w", err)
 	}
@@ -69,6 +71,7 @@ func (s *Store) FetchNextJob(ctx context.Context, queueId int) (*model.Job, erro
 	}
 
 	job.Status = model.StatusRunning
+	job.Attempts = job.Attempts + 1
 	return job, nil
 }
 
@@ -106,6 +109,16 @@ func (s *Store) InsertJob(ctx context.Context, job *model.Job) (string, error) {
 		return "", fmt.Errorf("InsertJob: %w", err)
 	}
 	return jobId, nil
+}
+
+func (s *Store) RescheduleJob(ctx context.Context, jobId string, newScheduledAt time.Time) error {
+	query := `
+				UPDATE jobs SET scheduled_at = $1, status = 'pending' WHERE id = $2`
+	_, err := s.db.Exec(ctx, query, newScheduledAt, jobId)
+	if err != nil {
+		return fmt.Errorf("RescheduleJob: %w", err)
+	}
+	return nil
 }
 
 // Inserts a new execution record for a job. It takes the job ID, worker ID, and attempt number as input, and sets the status to 'running' with the current timestamp. The function returns the generated execution ID after insertion. If the insertion fails, it returns an error.

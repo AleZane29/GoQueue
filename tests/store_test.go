@@ -77,6 +77,7 @@ func applyMigrations(ctx context.Context, pool *pgxpool.Pool) error {
             payload             JSONB       NOT NULL DEFAULT '{}',
             max_time_to_execute INTERVAL    NOT NULL DEFAULT '5 minutes',
             max_attempts        INT         NOT NULL DEFAULT 3,
+						attempts            INT         NOT NULL DEFAULT 0,
             created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
             scheduled_at        TIMESTAMPTZ NOT NULL DEFAULT now()
         );
@@ -250,7 +251,6 @@ func TestFetchNextJob_NoConcurrentDuplicates(t *testing.T) {
 	}
 }
 
-// SCRIVERE TEST PER: InsertExecution, UpdateExecution, FetchOrphanedJobs
 func TestFetchOrphanedJobs_RetriveOnlyOrphaned(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
@@ -279,4 +279,21 @@ func TestFetchOrphanedJobs_RetriveOnlyOrphaned(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, jobs, 1)
 	assert.Equal(t, "orphan_job", jobs[0].Name)
+}
+
+func TestTerminateExecution_InsertExecution(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	jobId, err := s.InsertJob(ctx, baseJob(1))
+	require.NoError(t, err)
+
+	err = s.TerminateExecution(ctx, "", model.StatusCompleted, "")
+	require.Error(t, err)
+
+	executionId, err := s.InsertExecution(ctx, jobId, "worker1", 1)
+	require.NoError(t, err)
+
+	err = s.TerminateExecution(ctx, executionId, model.StatusCompleted, "")
+	require.NoError(t, err)
 }

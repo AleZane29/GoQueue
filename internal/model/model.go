@@ -26,6 +26,7 @@ type Job struct {
 	Type             string
 	Payload          string
 	MaxTimeToExecute time.Duration
+	Attempts         int
 	MaxAttempts      int
 	CreatedAt        time.Time
 	ScheduledAt      time.Time

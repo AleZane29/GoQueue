@@ -1,4 +1,10 @@
-- Fix errori segnalati dai test
+- Introdurre dispatcher nel funzione processNextJob
+- Scrivere test per verificare che il numero di attempt di ogni job venga
+  rispettato e aggiornato correttamente -> _aggiungere prima la gestione di
+  aggiornamento degli attempt_
+
+-Aggiornare design spiegando l'uso del strategy pattern per l'esecuzione in base
+al tipo dei vari job
 
 # Path
 

@@ -2,25 +2,91 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
+	"github.com/AleZane29/GoQueue/internal/dispatcher"
+	"github.com/AleZane29/GoQueue/internal/model"
 	"github.com/AleZane29/GoQueue/internal/store"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-func main() {
-	ctx := context.Background()
+// func main() {
+// 	ctx := context.Background()
 
-	pool, err := pgxpool.New(ctx, "postgres://postgres:@localhost:5432/GoQueue?sslmode=disable")
+// 	pool, err := pgxpool.New(ctx, "postgres://postgres:@localhost:5432/GoQueue?sslmode=disable")
+// 	if err != nil {
+// 		log.Fatal(err)
+// 	}
+// 	defer pool.Close()
+
+// 	if err := pool.Ping(ctx); err != nil {
+// 		log.Fatal(err)
+// 	}
+
+// 	store := store.NewStore(pool)
+// 	_ = store // per ora, finché non sviluppo dispatcher
+// }
+
+func baseJob(queueId int, name string) *model.Job {
+	return &model.Job{
+		QueueId:          queueId,
+		Name:             name,
+		Status:           model.StatusPending,
+		Type:             "email",
+		Payload:          `{"key": "value"}`,
+		MaxTimeToExecute: 5 * time.Minute,
+		MaxAttempts:      3,
+		CreatedAt:        time.Now(),
+		ScheduledAt:      time.Now(),
+	}
+}
+
+func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	// 1. connessione al db
+	pool, err := pgxpool.New(ctx, "postgres://postgres:postgres@localhost:5432/GoQueue?sslmode=disable")
 	if err != nil {
 		log.Fatal(err)
+
 	}
 	defer pool.Close()
 
-	if err := pool.Ping(ctx); err != nil {
-		log.Fatal(err)
-	}
+	// 2. store
+	s := store.NewStore(pool)
 
-	store := store.NewStore(pool)
-	_ = store // per ora, finché non sviluppo dispatcher
+	// 3. dispatcher con 10 worker
+	dispatcher := dispatcher.NewDispatcher(s, 10)
+
+	// 4. registri gli handler
+	dispatcher.RegisterHandler("email", func(ctx context.Context, job *model.Job) error {
+		// logica invio email
+		fmt.Println("Sending email for job:", job.Id)
+		return nil
+	})
+	dispatcher.RegisterHandler("resize_image", func(ctx context.Context, job *model.Job) error {
+		// logica resize
+		fmt.Println("Resizing image for job:", job.Id)
+		return nil
+	})
+
+	s.InsertJob(ctx, baseJob(1, "test_job1"))
+
+	// 5. avvii il dispatcher
+	dispatcher.Start(ctx)
+
+	s.InsertJob(ctx, baseJob(1, "test_job2"))
+
+	log.Println("GoQueue started, press CTRL+C to stop")
+
+	// blocca qui finché non arriva CTRL+C o SIGTERM
+	<-ctx.Done()
+
+	log.Println("shutting down...")
 }
