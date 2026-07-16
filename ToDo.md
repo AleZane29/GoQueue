@@ -1,4 +1,3 @@
-- Introdurre dispatcher nel funzione processNextJob
 - Scrivere test per verificare che il numero di attempt di ogni job venga
   rispettato e aggiornato correttamente -> _aggiungere prima la gestione di
   aggiornamento degli attempt_

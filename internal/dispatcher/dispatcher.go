@@ -34,6 +34,7 @@ func NewDispatcher(store *store.Store, workerCount int) *Dispatcher {
 		workers[i] = worker.NewWorker(
 			fmt.Sprintf("worker-%d", i),
 			store,
+			jobCh,
 		)
 	}
 
@@ -70,6 +71,7 @@ func (d *Dispatcher) dispatch(ctx context.Context) {
 
 func (d *Dispatcher) Start(ctx context.Context) {
 	d.started = true
+	fmt.Println("Starting", len(d.workers), "workers")
 	// avvia tutti i worker
 	for _, w := range d.workers {
 		w.Start(ctx)

@@ -100,11 +100,11 @@ func (w *Worker) handleFailure(ctx context.Context, job *model.Job, execErr erro
 // 	return &WorkerPool{workers: workers, store: store}
 // }
 
-func NewWorker(id string, store *store.Store) *Worker {
+func NewWorker(id string, store *store.Store, jobCh <-chan *model.Job) *Worker {
 	return &Worker{
 		id:       id,
 		store:    store,
 		handlers: make(map[string]HandlerFunc),
-		jobCh:    nil,
+		jobCh:    jobCh,
 	}
 }

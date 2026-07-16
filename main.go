@@ -13,6 +13,7 @@ import (
 	"github.com/AleZane29/GoQueue/internal/model"
 	"github.com/AleZane29/GoQueue/internal/store"
 	"github.com/jackc/pgx/v5/pgxpool"
+	_ "github.com/joho/godotenv/autoload"
 )
 
 // func main() {
@@ -51,7 +52,7 @@ func main() {
 	defer stop()
 
 	// 1. connessione al db
-	pool, err := pgxpool.New(ctx, "postgres://postgres:postgres@localhost:5432/GoQueue?sslmode=disable")
+	pool, err := pgxpool.New(ctx, os.Getenv("DATABASE_URL"))
 	if err != nil {
 		log.Fatal(err)
 
