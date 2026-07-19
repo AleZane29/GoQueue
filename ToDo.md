@@ -5,6 +5,8 @@
 -Aggiornare design spiegando l'uso del strategy pattern per l'esecuzione in base
 al tipo dei vari job
 
+- verificare il fallimento per max_time_to_execute
+
 # Path
 
 ## 1. Setup del progetto (1-2 ore)

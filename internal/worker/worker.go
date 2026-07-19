@@ -60,10 +60,16 @@ func (w *Worker) processNextJob(ctx context.Context, job *model.Job) {
 }
 
 func (w *Worker) handler(ctx context.Context, job *model.Job) error {
-	// Implement the actual job handling logic here
-	// For now, just print the job details and return nil
-	fmt.Printf("Worker %s is processing job %s\n", w.id, job.Id)
-	return nil
+	handlerJob, exists := w.handlers[job.Type]
+	if !exists {
+		fmt.Printf("Handler for job of type %s doesn't exist\n", job.Type)
+		return fmt.Errorf("Handler for job of type %s doesn't exist\n", job.Type)
+	}
+	fmt.Printf("Worker %s is processing job %s\n", w.id, job.Name)
+
+	err := handlerJob(ctx, job)
+
+	return err
 }
 
 // internal/worker/worker.go
@@ -72,14 +78,14 @@ func (w *Worker) RegisterHandler(jobType string, handler HandlerFunc) {
 }
 
 func (w *Worker) handleFailure(ctx context.Context, job *model.Job, execErr error) {
-	if job.Attempts+1 >= job.MaxAttempts {
+	if job.Attempts >= job.MaxAttempts {
 		// ha esaurito i tentativi → dead
 		w.store.UpdateJobStatus(ctx, job.Id, model.StatusDead)
 		return
 	}
 
 	// calcola il backoff: 2^attempt * baseDelay con jitter ±10%
-	attempt := float64(job.Attempts + 1)
+	attempt := float64(job.Attempts)
 	baseDelay := 20 * time.Second
 	backoff := time.Duration(math.Pow(2, attempt)) * baseDelay
 	jitter := time.Duration(rand.Int63n(int64(backoff / 10)))
