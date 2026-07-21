@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"math/rand"
@@ -47,6 +48,7 @@ func (w *Worker) processNextJob(ctx context.Context, job *model.Job) {
 	// esegui il job con timeout
 	jobCtx, cancel := context.WithTimeout(ctx, job.MaxTimeToExecute)
 	defer cancel()
+
 	execErr := w.handler(jobCtx, job)
 
 	// gestisci l'esito
@@ -54,6 +56,10 @@ func (w *Worker) processNextJob(ctx context.Context, job *model.Job) {
 		w.store.TerminateExecution(ctx, execId, model.StatusCompleted, "")
 		w.store.UpdateJobStatus(ctx, job.Id, model.StatusCompleted)
 	} else {
+		if errors.Is(execErr, context.DeadlineExceeded) {
+			fmt.Printf("Job %s timed out after %s\n", job.Name, job.MaxTimeToExecute)
+			execErr = fmt.Errorf("Job exceeded max time to execute\n")
+		}
 		w.store.TerminateExecution(ctx, execId, model.StatusFailed, execErr.Error())
 		w.handleFailure(ctx, job, execErr)
 	}

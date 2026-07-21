@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -40,7 +41,7 @@ func baseJob(queueId int, name string, jobType string) *model.Job {
 		Status:           model.StatusPending,
 		Type:             jobType,
 		Payload:          `{"key": "value"}`,
-		MaxTimeToExecute: 5 * time.Minute,
+		MaxTimeToExecute: 5 * time.Second,
 		MaxAttempts:      3,
 		CreatedAt:        time.Now(),
 		ScheduledAt:      time.Now(),
@@ -63,21 +64,41 @@ func main() {
 	s := store.NewStore(pool)
 
 	// 3. dispatcher con 10 worker
-	dispatcher := dispatcher.NewDispatcher(s, 10)
+	dispatcher := dispatcher.NewDispatcher(s, 100)
 
 	// 4. registri gli handler
 	dispatcher.RegisterHandler("email", func(ctx context.Context, job *model.Job) error {
-		// logica invio email
+
+		time.Sleep(4 * time.Second)
 		fmt.Println("Sending email for job:", job.Id)
 		return nil
+
 	})
 	dispatcher.RegisterHandler("resize_image", func(ctx context.Context, job *model.Job) error {
-		// logica resize
+		//INTRODURRE CHECK TIMEOUT E STOPPARE LOGICA SE SUPERATO
+		// time.Sleep(6 * time.Second)
+		// fmt.Println("Resizing image for job:", job.Id)
+		// return nil
+		done := make(chan error, 1)
+		go func() {
+			time.Sleep(6 * time.Second)
+			fmt.Println("Resizing image for job:", job.Id)
+			done <- nil //Error to return
+		}()
 
-		fmt.Println("Resizing image for job:", job.Id)
-		return nil
+		//Switch case to check if the job made it in times or exceeded max time to execute
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case err := <-done:
+			return err
+		}
+
 	})
 
+	for i := 0; i < 100; i++ {
+		s.InsertJob(ctx, baseJob(2, "test_email_job"+strconv.Itoa(i), "email"))
+	}
 	s.InsertJob(ctx, baseJob(1, "test_job1", "email"))
 	s.InsertJob(ctx, baseJob(1, "test_job2", "document"))
 
@@ -86,7 +107,9 @@ func main() {
 	s.InsertJob(ctx, baseJob(2, "test_job5", "email"))
 	s.InsertJob(ctx, baseJob(3, "test_job6", "email"))
 	s.InsertJob(ctx, baseJob(3, "test_job7", "document"))
-
+	for i := 0; i < 100; i++ {
+		s.InsertJob(ctx, baseJob(1, "test_resize_image_job"+strconv.Itoa(i), "resize_image"))
+	}
 	s.InsertJob(ctx, baseJob(1, "test_job8", "API"))
 	s.InsertJob(ctx, baseJob(1, "test_job9", "document"))
 	s.InsertJob(ctx, baseJob(2, "test_job10", "notification"))
