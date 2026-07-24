@@ -1,6 +1,7 @@
 package api
 
 import (
+	"log"
 	"net/http"
 	"os"
 	"time"
@@ -42,7 +43,7 @@ func NewServer(store *store.Store) *Server {
 	handler := loggerMiddleware(mainMux)
 
 	s.httpServer = &http.Server{
-		Addr:         ":8080",
+		Addr:         "127.0.0.1:8080",
 		Handler:      handler,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 30 * time.Second,
@@ -53,6 +54,7 @@ func NewServer(store *store.Store) *Server {
 }
 
 func (s *Server) Start() error {
+	log.Printf("Server started at: %s", s.httpServer.Addr)
 	return s.httpServer.ListenAndServe()
 }
 

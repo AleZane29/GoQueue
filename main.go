@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
-	"strconv"
 	"syscall"
 	"time"
 
@@ -63,19 +63,26 @@ func main() {
 	// 2. store
 	s := store.NewStore(pool)
 
-	//Avvia srver
-	srv := api.NewServer(s)
-	srv.Start()
-
 	// 3. dispatcher con 10 worker
 	dispatcher := dispatcher.NewDispatcher(s, 100)
 
 	// 4. registri gli handler
 	dispatcher.RegisterHandler("email", func(ctx context.Context, job *model.Job) error {
 
-		time.Sleep(4 * time.Second)
-		fmt.Println("Sending email for job:", job.Id)
-		return nil
+		done := make(chan error, 1)
+		go func() {
+			time.Sleep(4 * time.Second)
+			fmt.Println("Sending email for job:", job.Id)
+			done <- nil //Error to return
+		}()
+
+		//Switch case to check if the job made it in times or exceeded max time to execute
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case err := <-done:
+			return err
+		}
 
 	})
 	dispatcher.RegisterHandler("resize_image", func(ctx context.Context, job *model.Job) error {
@@ -96,31 +103,43 @@ func main() {
 
 	})
 
-	for i := 0; i < 100; i++ {
-		s.InsertJob(ctx, baseJob(2, "test_email_job"+strconv.Itoa(i), "email"))
-	}
-	s.InsertJob(ctx, baseJob(1, "test_job1", "email"))
-	s.InsertJob(ctx, baseJob(1, "test_job2", "document"))
+	// for i := 0; i < 100; i++ {
+	// 	s.InsertJob(ctx, baseJob(2, "test_email_job"+strconv.Itoa(i), "email"))
+	// }
+	// s.InsertJob(ctx, baseJob(1, "test_job1", "email"))
+	// s.InsertJob(ctx, baseJob(1, "test_job2", "document"))
 
-	s.InsertJob(ctx, baseJob(1, "test_job3", "resize_image"))
-	s.InsertJob(ctx, baseJob(1, "test_job4", "document"))
-	s.InsertJob(ctx, baseJob(2, "test_job5", "email"))
-	s.InsertJob(ctx, baseJob(3, "test_job6", "email"))
-	s.InsertJob(ctx, baseJob(3, "test_job7", "document"))
-	for i := 0; i < 100; i++ {
-		s.InsertJob(ctx, baseJob(1, "test_resize_image_job"+strconv.Itoa(i), "resize_image"))
-	}
-	s.InsertJob(ctx, baseJob(1, "test_job8", "API"))
-	s.InsertJob(ctx, baseJob(1, "test_job9", "document"))
-	s.InsertJob(ctx, baseJob(2, "test_job10", "notification"))
-	s.InsertJob(ctx, baseJob(3, "test_job11", "email"))
-	s.InsertJob(ctx, baseJob(3, "test_job12", "resize_image"))
+	// s.InsertJob(ctx, baseJob(1, "test_job3", "resize_image"))
+	// s.InsertJob(ctx, baseJob(1, "test_job4", "document"))
+	// s.InsertJob(ctx, baseJob(2, "test_job5", "email"))
+	// s.InsertJob(ctx, baseJob(3, "test_job6", "email"))
+	// s.InsertJob(ctx, baseJob(3, "test_job7", "document"))
+	// for i := 0; i < 100; i++ {
+	// 	s.InsertJob(ctx, baseJob(1, "test_resize_image_job"+strconv.Itoa(i), "resize_image"))
+	// }
+	// s.InsertJob(ctx, baseJob(1, "test_job8", "API"))
+	// s.InsertJob(ctx, baseJob(1, "test_job9", "document"))
+	// s.InsertJob(ctx, baseJob(2, "test_job10", "notification"))
+	// s.InsertJob(ctx, baseJob(3, "test_job11", "email"))
+	// s.InsertJob(ctx, baseJob(3, "test_job12", "resize_image"))
 	// 5. avvii il dispatcher
+
 	dispatcher.Start(ctx)
+
+	// 4. server
+	srv := api.NewServer(s)
+	go func() {
+		if err := srv.Start(); err != nil && err != http.ErrServerClosed {
+			log.Fatal(err)
+		}
+	}()
+
 	log.Println("GoQueue started, press CTRL+C to stop")
 
 	// blocca qui finché non arriva CTRL+C o SIGTERM
 	<-ctx.Done()
-
 	log.Println("shutting down...")
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	srv.Shutdown(shutdownCtx)
 }

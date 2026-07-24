@@ -48,3 +48,16 @@ type Execution struct {
 	Status      StatusValues
 	ExError     string
 }
+
+type JobResponse struct {
+	Id               string `json:"id"`
+	QueueId          int    `json:"queue_id"`
+	Name             string `json:"name"`
+	Status           string `json:"status"`
+	Type             string `json:"type"`
+	Payload          string `json:"payload"`
+	MaxTimeToExecute string `json:"max_time_to_execute"` // "5m0s"
+	MaxAttempts      int    `json:"max_attempts"`
+	CreatedAt        string `json:"created_at"`
+	ScheduledAt      string `json:"scheduled_at"`
+}

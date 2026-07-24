@@ -113,14 +113,13 @@ func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, errorResponse("job not found"))
 		return
 	}
-
-	writeJSON(w, http.StatusOK, job)
+	writeJSON(w, http.StatusOK, jobToResponse(job))
 }
 
 // GET /jobs?queue=high&status=pending&page=1&page_size=20
 func (s *Server) handleListJobs(w http.ResponseWriter, r *http.Request) {
-	queue := r.URL.Query().Get("queue")   // es. "high", "medium", "low"
-	status := r.URL.Query().Get("status") // es. "pending", "running", "failed"
+	queue := r.URL.Query().Get("queue")
+	status := r.URL.Query().Get("status")
 
 	jobs, err := s.store.ListJobs(r.Context(), queue, status)
 	if err != nil {
@@ -214,4 +213,19 @@ func (s *Server) handleGetQueues(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"queues": stats,
 	})
+}
+
+func jobToResponse(job *model.Job) model.JobResponse {
+	return model.JobResponse{
+		Id:               job.Id,
+		QueueId:          job.QueueId,
+		Name:             job.Name,
+		Status:           string(job.Status),
+		Type:             job.Type,
+		Payload:          job.Payload,
+		MaxTimeToExecute: job.MaxTimeToExecute.String(), // ← .String()
+		MaxAttempts:      job.MaxAttempts,
+		CreatedAt:        job.CreatedAt.Format(time.RFC3339),
+		ScheduledAt:      job.ScheduledAt.Format(time.RFC3339),
+	}
 }
