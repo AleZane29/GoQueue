@@ -1,6 +1,8 @@
 -Aggiornare design spiegando l'uso del strategy pattern per l'esecuzione in base
 al tipo dei vari job
 
+-Gestire i job rimasti a running dopo stop dell'applicativo
+
 # Path
 
 ## 1. Setup del progetto (1-2 ore)

@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/AleZane29/GoQueue/internal/api"
 	"github.com/AleZane29/GoQueue/internal/dispatcher"
 	"github.com/AleZane29/GoQueue/internal/model"
 	"github.com/AleZane29/GoQueue/internal/store"
@@ -56,12 +57,15 @@ func main() {
 	pool, err := pgxpool.New(ctx, os.Getenv("DATABASE_URL"))
 	if err != nil {
 		log.Fatal(err)
-
 	}
 	defer pool.Close()
 
 	// 2. store
 	s := store.NewStore(pool)
+
+	//Avvia srver
+	srv := api.NewServer(s)
+	srv.Start()
 
 	// 3. dispatcher con 10 worker
 	dispatcher := dispatcher.NewDispatcher(s, 100)
@@ -75,10 +79,6 @@ func main() {
 
 	})
 	dispatcher.RegisterHandler("resize_image", func(ctx context.Context, job *model.Job) error {
-		//INTRODURRE CHECK TIMEOUT E STOPPARE LOGICA SE SUPERATO
-		// time.Sleep(6 * time.Second)
-		// fmt.Println("Resizing image for job:", job.Id)
-		// return nil
 		done := make(chan error, 1)
 		go func() {
 			time.Sleep(6 * time.Second)

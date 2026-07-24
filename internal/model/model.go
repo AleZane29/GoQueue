@@ -18,6 +18,12 @@ type Queue struct {
 	Weight int
 }
 
+type QueueStats struct {
+	NameQueue  string
+	JobsStatus StatusValues
+	NJob       int
+}
+
 type Job struct {
 	Id               string
 	QueueId          int

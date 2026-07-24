@@ -16,6 +16,114 @@ type Store struct {
 	db *pgxpool.Pool
 }
 
+func (s *Store) FetchQueueStats(ctx context.Context) ([]model.QueueStats, error) {
+	query := `
+        SELECT q.name as q_name, count(*) as n_job, j.status
+        FROM jobs as j JOIN queues as q ON j.queue_id = q.id
+				GROUP BY q.name, j.status ORDER BY q_name
+				`
+	rows, err := s.db.Query(ctx, query)
+	if err != nil {
+		return []model.QueueStats{}, fmt.Errorf("ListJobs: %w", err)
+	}
+	defer rows.Close()
+
+	var queuesStats []model.QueueStats
+	for rows.Next() {
+		row := model.QueueStats{}
+		err := rows.Scan(
+			&row.NameQueue,
+			&row.NJob,
+			&row.JobsStatus,
+		)
+		if err != nil {
+			return queuesStats, fmt.Errorf("ListJobs scan: %w", err)
+		}
+		queuesStats = append(queuesStats, row)
+	}
+
+	return queuesStats, nil
+}
+
+// Return last 100 jobs created in the queue x with status y
+func (s *Store) ListJobs(ctx context.Context, queue string, status string) ([]*model.Job, error) {
+	query := `
+        SELECT id, queue_id, name, status, type, payload,
+               max_time_to_execute, attempts, max_attempts, created_at, scheduled_at
+        FROM jobs
+        WHERE queue_id = $1 AND status = $2 ORDER BY created_at DESC
+        LIMIT 100`
+	rows, err := s.db.Query(ctx, query, queue, status)
+	if err != nil {
+		return []*model.Job{}, fmt.Errorf("ListJobs: %w", err)
+	}
+	defer rows.Close()
+
+	var jobs []*model.Job
+	for rows.Next() {
+		job := &model.Job{}
+		err := rows.Scan(
+			&job.Id,
+			&job.QueueId,
+			&job.Name,
+			&job.Status,
+			&job.Type,
+			&job.Payload,
+			&job.MaxTimeToExecute,
+			&job.MaxAttempts,
+			&job.CreatedAt,
+			&job.ScheduledAt,
+		)
+		if err != nil {
+			return jobs, fmt.Errorf("ListJobs scan: %w", err)
+		}
+		jobs = append(jobs, job)
+	}
+
+	if err = rows.Err(); err != nil {
+		return jobs, fmt.Errorf("ListJobs rows error: %w", err)
+	}
+
+	return jobs, nil
+}
+
+func (s *Store) DeleteJob(ctx context.Context, id string) error {
+	query := `
+				DELETE FROM jobs WHERE id = $1`
+	_, err := s.db.Exec(ctx, query, id)
+	if err != nil {
+		return fmt.Errorf("DeleteJob: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) GetJob(ctx context.Context, id string) (*model.Job, error) {
+	job := &model.Job{}
+	query := `
+        SELECT id, queue_id, name, status, type, payload,
+               max_time_to_execute, attempts, max_attempts, created_at, scheduled_at
+        FROM jobs
+        WHERE id = $1`
+
+	err := s.db.QueryRow(ctx, query, id).Scan(
+		&job.Id,
+		&job.QueueId,
+		&job.Name,
+		&job.Status,
+		&job.Type,
+		&job.Payload,
+		&job.MaxTimeToExecute,
+		&job.Attempts,
+		&job.MaxAttempts,
+		&job.CreatedAt,
+		&job.ScheduledAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("GetJob: %w", err)
+	}
+	return job, nil
+}
+
 func NewStore(db *pgxpool.Pool) *Store {
 	return &Store{db: db}
 }
